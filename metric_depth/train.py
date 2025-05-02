@@ -1,11 +1,12 @@
 import argparse
 import logging
-import os
 import pprint
 import random
 
 import warnings
 import numpy as np
+import os
+os.environ["USE_LIBUV"] = "0"
 import torch
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
@@ -23,6 +24,7 @@ from util.loss import SiLogLoss
 from util.metric import eval_depth
 from util.utils import init_log
 
+from Codes.DataImporters import generate_file_pairs, split_data
 
 parser = argparse.ArgumentParser(description='Depth Anything V2 for Metric Depth Estimation')
 
@@ -39,17 +41,18 @@ parser.add_argument('--save-path', type=str, required=True)
 parser.add_argument('--local-rank', default=0, type=int)
 parser.add_argument('--port', default=None, type=int)
 
-
 def main():
+    generated_files_pairs = generate_file_pairs("F:/Dataset/Partial_hypersim_extracted")
+    train_data, val_data = split_data(pairs=generated_files_pairs, val_percentage=0.2, random_seed=42, shuffle=False) # preprocessed
+    
     args = parser.parse_args()
     
-    warnings.simplefilter('ignore', np.RankWarning)
-    
+    # warnings.simplefilter('ignore', np.RankWarning)
     logger = init_log('global', logging.INFO)
     logger.propagate = 0
     
     rank, world_size = setup_distributed(port=args.port)
-    
+
     if rank == 0:
         all_args = {**vars(args), 'ngpus': world_size}
         logger.info('{}\n'.format(pprint.pformat(all_args)))
@@ -60,7 +63,7 @@ def main():
     
     size = (args.img_size, args.img_size)
     if args.dataset == 'hypersim':
-        trainset = Hypersim('dataset/splits/hypersim/train.txt', 'train', size=size)
+        trainset = Hypersim('', 'train', size=size, fileListLines=train_data)
     elif args.dataset == 'vkitti':
         trainset = VKITTI2('dataset/splits/vkitti2/train.txt', 'train', size=size)
     else:
@@ -69,7 +72,7 @@ def main():
     trainloader = DataLoader(trainset, batch_size=args.bs, pin_memory=True, num_workers=4, drop_last=True, sampler=trainsampler)
     
     if args.dataset == 'hypersim':
-        valset = Hypersim('dataset/splits/hypersim/val.txt', 'val', size=size)
+        valset = Hypersim('', 'val', size=size, fileListLines=val_data)
     elif args.dataset == 'vkitti':
         valset = KITTI('dataset/splits/kitti/val.txt', 'val', size=size)
     else:

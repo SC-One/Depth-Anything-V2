@@ -1,5 +1,9 @@
+torch
+torchvision
+torchaudio
 matplotlib
 opencv-python
 open3d
-torch
-torchvision
+tensorboard
+h5py
+numpy

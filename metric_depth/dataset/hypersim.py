@@ -24,13 +24,18 @@ def hypersim_distance_to_depth(npyDistance):
 
 
 class Hypersim(Dataset):
-    def __init__(self, filelist_path, mode, size=(518, 518)):
-        
+    # fileListLines pattern: "<scene image> <hdf5 depth meters>"
+    def __init__(self, filelist_path, mode, size=(518, 518), fileListLines = None):
+
         self.mode = mode
         self.size = size
-        
-        with open(filelist_path, 'r') as f:
-            self.filelist = f.read().splitlines()
+        if(fileListLines is None):
+            if(filelist_path is None):
+                exit(1) # we should at least one source data! :|
+            with open(filelist_path, 'r') as f:
+                self.filelist = f.read().splitlines()
+        else:
+            self.filelist = fileListLines
         
         net_w, net_h = size
         self.transform = Compose([
