@@ -7,6 +7,7 @@ import warnings
 import numpy as np
 import os
 os.environ["USE_LIBUV"] = "0"
+
 import torch
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
@@ -25,6 +26,8 @@ from util.metric import eval_depth
 from util.utils import init_log
 
 from Codes.DataImporters import generate_file_pairs, split_data
+from Codes.Utility import is_valid_filename
+
 
 parser = argparse.ArgumentParser(description='Depth Anything V2 for Metric Depth Estimation')
 
@@ -40,18 +43,30 @@ parser.add_argument('--pretrained-from', type=str)
 parser.add_argument('--save-path', type=str, required=True)
 parser.add_argument('--local-rank', default=0, type=int)
 parser.add_argument('--port', default=None, type=int)
+parser.add_argument('--model-name', default="latest", type=str)
 
 def main():
     generated_files_pairs = generate_file_pairs("F:/Dataset/Partial_hypersim_extracted")
     train_data, val_data = split_data(pairs=generated_files_pairs, val_percentage=0.2, random_seed=42, shuffle=False) # preprocessed
-    
+
     args = parser.parse_args()
     
     # warnings.simplefilter('ignore', np.RankWarning)
     logger = init_log('global', logging.INFO)
     logger.propagate = 0
+    stringPrinting = f'train images count: {len(train_data)}, validation images count: {len(val_data)}'
+    logger.info(stringPrinting)
     
-    rank, world_size = setup_distributed(port=args.port)
+    modelFileNameToSave = args.model_name + '.pth'
+    if not is_valid_filename(modelFileNameToSave):
+        logger.error(f'the filename[{modelFileNameToSave}] is not legal. change the name.')
+        exit(-1)
+
+    if torch.cuda.device_count() == 1:
+        rank, world_size = 0, 1
+    else:
+        rank, world_size = setup_distributed(port=args.port)
+
 
     if rank == 0:
         all_args = {**vars(args), 'ngpus': world_size}
@@ -68,7 +83,13 @@ def main():
         trainset = VKITTI2('dataset/splits/vkitti2/train.txt', 'train', size=size)
     else:
         raise NotImplementedError
-    trainsampler = torch.utils.data.distributed.DistributedSampler(trainset)
+    
+    use_distributed = dist.is_available() and dist.is_initialized()
+
+    if use_distributed:
+        trainsampler = torch.utils.data.distributed.DistributedSampler(trainset)
+    else:
+        trainsampler = None
     trainloader = DataLoader(trainset, batch_size=args.bs, pin_memory=True, num_workers=4, drop_last=True, sampler=trainsampler)
     
     if args.dataset == 'hypersim':
@@ -77,10 +98,14 @@ def main():
         valset = KITTI('dataset/splits/kitti/val.txt', 'val', size=size)
     else:
         raise NotImplementedError
-    valsampler = torch.utils.data.distributed.DistributedSampler(valset)
+    
+    if use_distributed:
+        valsampler = torch.utils.data.distributed.DistributedSampler(valset)
+    else:
+        valsampler = None
     valloader = DataLoader(valset, batch_size=1, pin_memory=True, num_workers=4, drop_last=True, sampler=valsampler)
     
-    local_rank = int(os.environ["LOCAL_RANK"])
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
     
     model_configs = {
         'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
@@ -94,9 +119,13 @@ def main():
         model.load_state_dict({k: v for k, v in torch.load(args.pretrained_from, map_location='cpu').items() if 'pretrained' in k}, strict=False)
     
     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-    model.cuda(local_rank)
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], broadcast_buffers=False,
-                                                      output_device=local_rank, find_unused_parameters=True)
+    
+    if use_distributed:
+        model.cuda(local_rank)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], broadcast_buffers=False,
+                                                          output_device=local_rank, find_unused_parameters=True)
+    else:
+        model.cuda()
     
     criterion = SiLogLoss().cuda(local_rank)
     
@@ -115,8 +144,8 @@ def main():
                         'log10: {:.3f}, silog: {:.3f}'.format(
                             epoch, args.epochs, previous_best['abs_rel'], previous_best['sq_rel'], previous_best['rmse'], 
                             previous_best['rmse_log'], previous_best['log10'], previous_best['silog']))
-        
-        trainloader.sampler.set_epoch(epoch + 1)
+        if isinstance(trainloader.sampler, torch.utils.data.distributed.DistributedSampler) and use_distributed:
+            trainloader.sampler.set_epoch(epoch + 1)
         
         model.train()
         total_loss = 0
@@ -179,11 +208,13 @@ def main():
                 results[k] += cur_results[k]
             nsamples += 1
         
-        torch.distributed.barrier()
+        if use_distributed:
+            torch.distributed.barrier()
         
-        for k in results.keys():
-            dist.reduce(results[k], dst=0)
-        dist.reduce(nsamples, dst=0)
+        if use_distributed:
+            for k in results.keys():
+                dist.reduce(results[k], dst=0)
+            dist.reduce(nsamples, dst=0)
         
         if rank == 0:
             logger.info('==========================================================================================')
@@ -208,7 +239,7 @@ def main():
                 'epoch': epoch,
                 'previous_best': previous_best,
             }
-            torch.save(checkpoint, os.path.join(args.save_path, 'latest.pth'))
+            torch.save(checkpoint, os.path.join(args.save_path, modelFileNameToSave))
 
 
 if __name__ == '__main__':
