@@ -24,9 +24,11 @@ from util.dist_helper import setup_distributed
 from util.loss import SiLogLoss
 from util.metric import eval_depth
 from util.utils import init_log
+from datetime import datetime
 
 from Codes.DataImporters import generate_file_pairs, split_data
 from Codes.Utility import is_valid_filename
+from Codes.CSVLogger import CSVLogger
 
 
 parser = argparse.ArgumentParser(description='Depth Anything V2 for Metric Depth Estimation')
@@ -43,14 +45,18 @@ parser.add_argument('--pretrained-from', type=str)
 parser.add_argument('--save-path', type=str, required=True)
 parser.add_argument('--local-rank', default=0, type=int)
 parser.add_argument('--port', default=None, type=int)
-parser.add_argument('--model-name', default="latest", type=str)
+parser.add_argument('--model-name', default="latest", type=str, required=True)
+parser.add_argument('--folder-dataset', default="F:/Dataset/Partial_hypersim_extracted", type=str)
+
 
 def main():
-    generated_files_pairs = generate_file_pairs("F:/Dataset/Partial_hypersim_extracted")
-    train_data, val_data = split_data(pairs=generated_files_pairs, val_percentage=0.2, random_seed=42, shuffle=False) # preprocessed
-
     args = parser.parse_args()
     
+    generated_files_pairs = generate_file_pairs(args.folder_dataset)
+    train_data, val_data = split_data(pairs=generated_files_pairs, val_percentage=0.2, random_seed=42, shuffle=False) # preprocessed
+
+    csvLogger = CSVLogger(args.save_path, True)
+
     # warnings.simplefilter('ignore', np.RankWarning)
     logger = init_log('global', logging.INFO)
     logger.propagate = 0
@@ -138,6 +144,7 @@ def main():
     previous_best = {'d1': 0, 'd2': 0, 'd3': 0, 'abs_rel': 100, 'sq_rel': 100, 'rmse': 100, 'rmse_log': 100, 'log10': 100, 'silog': 100}
     
     for epoch in range(args.epochs):
+        csvLogger.on_epoch_start()
         if rank == 0:
             logger.info('===========> Epoch: {:}/{:}, d1: {:.3f}, d2: {:.3f}, d3: {:.3f}'.format(epoch, args.epochs, previous_best['d1'], previous_best['d2'], previous_best['d3']))
             logger.info('===========> Epoch: {:}/{:}, abs_rel: {:.3f}, sq_rel: {:.3f}, rmse: {:.3f}, rmse_log: {:.3f}, '
@@ -181,7 +188,11 @@ def main():
             
             if rank == 0 and i % 100 == 0:
                 logger.info('Iter: {}/{}, LR: {:.7f}, Loss: {:.3f}'.format(i, len(trainloader), optimizer.param_groups[0]['lr'], loss.item()))
+            global_step = epoch * len(trainloader) + i
+            # optional per iteration?:
+            csvLogger.log_step(global_step, loss.item(), optimizer.param_groups[0]['lr'])
         
+        avg_loss = total_loss / len(trainloader)
         model.eval()
         
         results = {'d1': torch.tensor([0.0]).cuda(), 'd2': torch.tensor([0.0]).cuda(), 'd3': torch.tensor([0.0]).cuda(), 
@@ -232,6 +243,11 @@ def main():
             else:
                 previous_best[k] = min(previous_best[k], (results[k] / nsamples).item())
         
+        lr = optimizer.param_groups[0]['lr']
+        # compute per-epoch averages
+        avg_metrics = {k: (results[k] / nsamples).item() for k in results.keys()}
+        csvLogger.log_epoch(epoch, avg_loss, lr, avg_metrics)
+
         if rank == 0:
             checkpoint = {
                 'model': model.state_dict(),
@@ -240,6 +256,8 @@ def main():
                 'previous_best': previous_best,
             }
             torch.save(checkpoint, os.path.join(args.save_path, modelFileNameToSave))
+    
+    logger.close()
 
 
 if __name__ == '__main__':
