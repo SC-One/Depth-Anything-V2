@@ -69,8 +69,7 @@ def main():
         filePairsGenerator = generate_file_pairs_vkitti
     
 
-    generated_files_pairs = filePairsGenerator(args.folder_dataset) 
-    save_strings_to_file(generated_files_pairs, "tmp_train_file_path.txt")
+    generated_files_pairs = filePairsGenerator(args.folder_dataset)
     train_data, val_data = split_data(pairs=generated_files_pairs, val_percentage=0.2, random_seed=args.random_seed, shuffle=False) # preprocessed
     savedSuccess = (save_strings_to_file(train_data, tmp_train_file_path)) and (save_strings_to_file(val_data, tmp_val_file_path))
     if not savedSuccess:

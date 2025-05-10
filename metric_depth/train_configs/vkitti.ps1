@@ -1,0 +1,11 @@
+$epoch           = 40
+$bs              = 4
+$gpus            = 1
+$lr              = 5e-6
+$encoder         = 'vitb'
+$dataset         = 'vkitti'
+$img_size        = 518
+$min_depth       = 0.001
+$max_depth       = 80
+$pretrained_from = "../checkpoints/depth_anything_v2_${encoder}.pth"
+$folder_dataset  = "F:/Dataset/vikitti/vkitti_2.0.3"
