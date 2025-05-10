@@ -26,15 +26,20 @@ from util.metric import eval_depth
 from util.utils import init_log
 from datetime import datetime
 
-from Codes.DataImporters import generate_file_pairs, split_data
-from Codes.Utility import is_valid_filename
+from Codes.DataImporters import generate_file_pairs_hypersim, generate_file_pairs_vkitti, split_data
+from Codes.Utility import is_valid_filename, save_strings_to_file
 from Codes.CSVLogger import CSVLogger
 
+HYPERSIM_DATSET = 'hypersim'
+VKITTI2_DATSET = 'vkitti'
+
+TRAIN_MODE = 'train'
+VALIDATION_MODE = 'val'
 
 parser = argparse.ArgumentParser(description='Depth Anything V2 for Metric Depth Estimation')
 
 parser.add_argument('--encoder', default='vitl', choices=['vits', 'vitb', 'vitl', 'vitg'])
-parser.add_argument('--dataset', default='hypersim', choices=['hypersim', 'vkitti'])
+parser.add_argument('--dataset', default=HYPERSIM_DATSET, choices=[HYPERSIM_DATSET, VKITTI2_DATSET])
 parser.add_argument('--img-size', default=518, type=int)
 parser.add_argument('--min-depth', default=0.001, type=float)
 parser.add_argument('--max-depth', default=20, type=float)
@@ -47,13 +52,29 @@ parser.add_argument('--local-rank', default=0, type=int)
 parser.add_argument('--port', default=None, type=int)
 parser.add_argument('--model-name', default="latest", type=str, required=True)
 parser.add_argument('--folder-dataset', default="F:/Dataset/Partial_hypersim_extracted", type=str)
+parser.add_argument('--random-seed', default=None, type=int)
 
 
 def main():
     args = parser.parse_args()
+    if args.random_seed is not None:
+        random.seed(args.random_seed)
+
+    filePairsGenerator = generate_file_pairs_hypersim # default.
+
+    tmp_train_file_path = os.path.join(args.save_path, f'train_{args.dataset}.txt') 
+    tmp_val_file_path = os.path.join(args.save_path, f'val_{args.dataset}.txt') 
+
+    if VKITTI2_DATSET == args.dataset:
+        filePairsGenerator = generate_file_pairs_vkitti
     
-    generated_files_pairs = generate_file_pairs(args.folder_dataset)
-    train_data, val_data = split_data(pairs=generated_files_pairs, val_percentage=0.2, random_seed=42, shuffle=False) # preprocessed
+
+    generated_files_pairs = filePairsGenerator(args.folder_dataset) 
+    save_strings_to_file(generated_files_pairs, "tmp_train_file_path.txt")
+    train_data, val_data = split_data(pairs=generated_files_pairs, val_percentage=0.2, random_seed=args.random_seed, shuffle=False) # preprocessed
+    savedSuccess = (save_strings_to_file(train_data, tmp_train_file_path)) and (save_strings_to_file(val_data, tmp_val_file_path))
+    if not savedSuccess:
+        exit(-1)
 
     csvLogger = CSVLogger(args.save_path, True)
 
@@ -83,10 +104,10 @@ def main():
     cudnn.benchmark = True
     
     size = (args.img_size, args.img_size)
-    if args.dataset == 'hypersim':
-        trainset = Hypersim('', 'train', size=size, fileListLines=train_data)
-    elif args.dataset == 'vkitti':
-        trainset = VKITTI2('dataset/splits/vkitti2/train.txt', 'train', size=size)
+    if args.dataset == HYPERSIM_DATSET:
+        trainset = Hypersim(tmp_train_file_path, TRAIN_MODE, size=size)
+    elif args.dataset == VKITTI2_DATSET:
+        trainset = VKITTI2(tmp_train_file_path, TRAIN_MODE, size=size)
     else:
         raise NotImplementedError
     
@@ -98,10 +119,10 @@ def main():
         trainsampler = None
     trainloader = DataLoader(trainset, batch_size=args.bs, pin_memory=True, num_workers=4, drop_last=True, sampler=trainsampler)
     
-    if args.dataset == 'hypersim':
-        valset = Hypersim('', 'val', size=size, fileListLines=val_data)
-    elif args.dataset == 'vkitti':
-        valset = KITTI('dataset/splits/kitti/val.txt', 'val', size=size)
+    if args.dataset == HYPERSIM_DATSET:
+        valset = Hypersim(tmp_val_file_path, VALIDATION_MODE, size=size)
+    elif args.dataset == VKITTI2_DATSET:
+        valset = KITTI(tmp_val_file_path, VALIDATION_MODE, size=size)
     else:
         raise NotImplementedError
     

@@ -44,6 +44,7 @@ $arguments = @(
     "--pretrained-from", $pretrained_from,
     "--model-name", "TrainedModel_${now}",
     "--folder-dataset", $folder_dataset,
+    "--random-seed", 42,
     "--port", "20596"
 )
 

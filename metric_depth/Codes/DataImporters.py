@@ -1,7 +1,12 @@
 import os
 import glob
+import random
+from .vkitti_exporter_files import get_image_pairs_str
 
-def generate_file_pairs(parent_dir):
+def generate_file_pairs_vkitti(parent_dir):
+    return get_image_pairs_str(parent_dir)
+
+def generate_file_pairs_hypersim(parent_dir):
     """
     Generates pairs of tonemap images and corresponding depth HDF5 files from a parent directory structure.
 
@@ -66,7 +71,6 @@ def generate_file_pairs(parent_dir):
                 file_pairs.append(pair)
 
     return sorted(file_pairs)
-import random
 
 def split_data(pairs, val_percentage=0.2, random_seed=None, shuffle=False):
     """
@@ -103,7 +107,7 @@ def split_data(pairs, val_percentage=0.2, random_seed=None, shuffle=False):
 
 # Example usage
 if __name__ == "__main__":
-    pairs = generate_file_pairs("F:/Dataset/Partial_hypersim_extracted")
+    pairs = generate_file_pairs_hypersim("F:/Dataset/Partial_hypersim_extracted")
     for pair in pairs[0:0]:
         print(pair)
     print(pairs[0])

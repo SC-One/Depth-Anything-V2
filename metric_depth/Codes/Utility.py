@@ -11,3 +11,14 @@ def is_valid_filename(filename):
         return True
     except (OSError, IOError):
         return False
+    
+def save_strings_to_file(strings, file_path):
+    try:
+        with open(file_path, 'w') as file:
+            for string in strings:
+                file.write(string + '\n')  # Write each string followed by a newline
+        print(f"Successfully saved {len(strings)} strings to {file_path}")
+        return True
+    except IOError as e:
+        print(f"Error writing to file {file_path}: {e}")
+        return False
