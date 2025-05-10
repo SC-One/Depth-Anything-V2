@@ -5,18 +5,20 @@ $Env:USE_LIBUV = "0"
 $now = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 
 # Training parameters
-$epoch = 45
-$bs = 8
+$epoch = 60
+$bs = 4
 $gpus = 1
 $lr = 0.000005
-$encoder = "vits"
-$dataset = "hypersim" # "vkitti"
+$encoder = "vitb"
+$dataset = "vkitti" # "vkitti", "hypersim"
 $img_size = 518
 $min_depth = 0.001
-$max_depth = 20 # 80 for virtual kitti
+$max_depth = 80 # vkitti: 80 , hypersim: 20
 $pretrained_from = "../checkpoints/depth_anything_v2_${encoder}.pth"
-$save_path = "Z:/MDE/DA_v2/Depth-Anything-V2/metric_depth/output_path/${now}" # "exp/vkitti"
-$folder_dataset = "G:/Dataset/Partial_hypersim_extracted"
+$save_path = "Z:/MDE/DA_v2/Depth-Anything-V2/metric_depth/output_path/${now}_${dataset}_${encoder}" # "exp/vkitti"
+$folder_dataset = "G:/Dataset/vikitti/vkitti_2.0.3"
+# "F:/Dataset/Partial_hypersim_extracted"
+# "F:/Dataset/vikitti/vkitti_2.0.3"
 
 # Create save directory if it doesn't exist
 if (!(Test-Path -Path $save_path)) {
